@@ -1,0 +1,4 @@
+StyleColorImages.h5 filter=lfs diff=lfs merge=lfs -text
+git add .gitattributes
+git add StyleColorImages.h5
+git commit -m "대용량 파일을 LFS로 관리"

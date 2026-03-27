@@ -1,23 +1,10 @@
-import h5py
-import matplotlib.pyplot as plt
-import numpy as np
+import sys, logging
+from PyQt6.QtWidgets import QApplication
+from main_window import MainWindow
 
-data = h5py.File('D:/Intelligence/StyleColorImages.h5', 'r')
-images = data['images'][:]
-products = data['products'][:]
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s", datefmt="%H:%M:%S")
+    app=QApplication(sys.argv); app.setApplicationName("AI Personal Color Platform"); app.setApplicationVersion("2.0.0")
+    win=MainWindow(); win.show(); sys.exit(app.exec())
 
-unique_labels = np.unique(products)
-
-plt.figure(figsize=(20, 4))
-for i, label in enumerate(unique_labels):
-    idx = np.where(products == label)[0][0] 
-    img = images[idx]
-    
-    if img.max() <= 1.0: img = (img * 255).astype(np.uint8)
-    
-    plt.subplot(1, 10, i + 1)
-    plt.imshow(img)
-    plt.title(f"Label: {label}")
-    plt.axis('off')
-
-plt.show()
+if __name__=="__main__": main()
