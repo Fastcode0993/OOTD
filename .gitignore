@@ -1,14 +1,14 @@
-# 가상환경 및 캐시 (필수)
 venv/
 __pycache__/
 .vscode/
 
-# 질문하신 데이터 및 제외 폴더들
 otherFolder/
 ShowMeTheColor/
 StyleColordataset/
 facecolordata/
 koreanskin/
 
-# 추가로 제외하면 좋은 출력 폴더
 output/
+
+*.h5
+StyleColorImages.h5
