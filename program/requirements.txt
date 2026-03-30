@@ -1,0 +1,26 @@
+# HMI 퍼스널 컬러 진단 시스템 의존성
+
+# 컴퓨터 비전 및 이미지 처리
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# AI/ML 프레임워크
+torch>=2.0.0
+torchvision>=0.15.0
+
+# 웹 프레임워크
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0  # Pydantic v2 for FastAPI
+
+# 웹 서버 및 API
+requests>=2.31.0
+
+# 얼굴 인식 및 랜드마크
+mediapipe>=0.10.0
+
+# 데이터베이스
+# sqlite3 는 Python 표준 라이브러리
+
+# 이미지 처리
+Pillow>=10.0.0
