@@ -1,4 +1,4 @@
-# HMI 퍼스널 컬러 진단 시스템
+# OOTD - Personal Color Diagnosis System
 
 ED-HMI3010-101C 기반 라즈베리 파이 5 통합 퍼스널 컬러 진단 시스템
 
@@ -50,6 +50,9 @@ program/
 ├── frontend/
 │   └── index.html           # React 프론트엔드
 ├── requirements.txt         # 의존성 목록
+├── constants.py             # 상수 정의
+├── server_preprocess.py     # MediaPipe 전처리
+├── Dockerfile               # Docker 이미지
 └── README.md               # 이 파일
 ```
 
