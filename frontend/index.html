@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMI 퍼스널 컬러 진단 시스템</title>
+    <!-- 카메라 캔버스 (숨김) -->
+    <canvas id="captureCanvas" style="display: none;"></canvas>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            touch-action: manipulation;
+        }
+        .touch-target {
+            min-height: 60px;
+            min-width: 60px;
+        }
+        .season-spring { background: linear-gradient(135deg, #FFF9C4 0%, #FFECB3 100%); }
+        .season-summer { background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%); }
+        .season-autumn { background: linear-gradient(135deg, #FFE0B2 0%, #FFCC80 100%); }
+        .season-winter { background: linear-gradient(135deg, #E8EAF6 0%, #C5CAE9 100%); }
+        .btn-primary {
+            @apply bg-blue-600 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:bg-blue-700 active:scale-95 transition-all;
+        }
+        .btn-secondary {
+            @apply bg-gray-200 text-gray-700 font-bold py-4 px-8 rounded-xl shadow hover:bg-gray-300 active:scale-95 transition-all;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-gray-100">
+    <div id="app" class="h-full w-full"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        // 상태 관리
+        let state = {
+            sessionId: '',
+            diagnosisResult: null,
+            isAnalyzing: false
+        };
+
+        // 도넛 차트 인스턴스
+        let donutChart = null;
+
+        // 앱 마운트
+        function mountApp() {
+            const app = document.getElementById('app');
+            
+            // 메인 컨테이너
+            const container = document.createElement('div');
+            container.className = 'flex flex-col h-full max-w-4xl mx-auto p-4';
+            
+            // 헤더
+            const header = createHeader();
+            container.appendChild(header);
+            
+            // 메인 컨텐츠
+            const main = createMainContent();
+            container.appendChild(main);
+            
+            // 하단 정보
+            const footer = createFooter();
+            container.appendChild(footer);
+            
+            app.appendChild(container);
+        }
+
+        // 헤더 컴포넌트
+        function createHeader() {
+            const header = document.createElement('div');
+            header.className = 'bg-white rounded-2xl shadow-md p-4 mb-4';
+            header.innerHTML = `
+                <h1 class="text-2xl font-bold text-gray-800 text-center">
+                    🎨 퍼스널 컬러 진단 시스템
+                </h1>
+                <p class="text-sm text-gray-500 text-center mt-1">
+                    ED-HMI3010-101C 기반 AI 진단
+                </p>
+            `;
+            return header;
+        }
+
+        // 메인 컨텐츠 컴포넌트
+        function createMainContent() {
+            const main = document.createElement('div');
+            main.className = 'flex-1 flex flex-col';
+            
+            // 진단 시작 섹션
+            const startSection = createStartSection();
+            main.appendChild(startSection);
+            
+            // 결과 섹션 (초기에는 숨김)
+            const resultSection = createResultSection();
+            main.appendChild(resultSection);
+            
+            return main;
+        }
+
+        // 진단 시작 섹션
+        function createStartSection() {
+            const section = document.createElement('div');
+            section.className = 'bg-white rounded-2xl shadow-md p-6 mb-4';
+            section.innerHTML = `
+                <div class="text-center">
+                    <div class="mb-4">
+                        <span class="text-6xl">📸</span>
+                    </div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">진단 시작</h2>
+                    <p class="text-gray-600 mb-4">
+                        카메라를 통해 얼굴을 촬영하여 퍼스널 컬러를 진단합니다.
+                    </p>
+                    <button onclick="startDiagnosis()" 
+                            class="btn-primary touch-target inline-block"
+                            id="startBtn">
+                        진단 시작
+                    </button>
+                    <p class="text-xs text-gray-400 mt-3">
+                        💡 장갑을 끼거나 손가락으로 터치하기 쉽도록 디자인되었습니다
+                    </p>
+                </div>
+            `;
+            return section;
+        }
+
+        // 결과 섹션
+        function createResultSection() {
+            const section = document.createElement('div');
+            section.className = 'hidden bg-white rounded-2xl shadow-md p-6';
+            section.id = 'resultSection';
+            section.innerHTML = `
+                <div class="text-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">진단 결과</h2>
+                    <p class="text-gray-500" id="sessionIdDisplay"></p>
+                </div>
+                
+                <!-- 계절 배경 -->
+                <div id="seasonBackground" class="rounded-2xl p-6 mb-4"></div>
+                
+                <!-- 도넛 차트 -->
+                <div class="flex justify-center mb-4">
+                    <div class="relative w-48 h-48">
+                        <canvas id="donutChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 결과 정보 -->
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-sm text-gray-500">진단된 계절</p>
+                        <p class="text-xl font-bold" id="seasonResult"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-sm text-gray-500">신뢰도</p>
+                        <p class="text-xl font-bold" id="confidenceResult"></p>
+                    </div>
+                </div>
+                
+                <!-- 메시지 -->
+                <div id="messageBox" class="mb-4"></div>
+                
+                <!-- 재촬영 버튼 -->
+                <button onclick="startDiagnosis()" 
+                        class="btn-secondary touch-target inline-block w-full"
+                        id="reTakeBtn" style="display: none;">
+                        다시 촬영
+                </button>
+                
+                <!-- 상세 정보 -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <h3 class="font-bold text-gray-700 mb-2">세부 정보</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div class="bg-gray-50 rounded-lg p-2">
+                            <p class="text-gray-500">양볼 RGB</p>
+                            <p class="font-mono" id="cheekRgb"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-2">
+                            <p class="text-gray-500">이마 RGB</p>
+                            <p class="font-mono" id="foreheadRgb"></p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return section;
+        }
+
+        // 하단 정보
+        function createFooter() {
+            const footer = document.createElement('div');
+            footer.className = 'bg-white rounded-2xl shadow-md p-4 mt-4';
+            footer.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <p class="text-sm text-gray-500">
+                        Session ID: <span id="currentSessionId" class="font-mono"></span>
+                    </p>
+                    <button onclick="clearResults()" 
+                            class="text-sm text-red-500 hover:text-red-700">
+                        결과 초기화
+                    </button>
+                </div>
+            `;
+            return footer;
+        }
+
+        // 진단 시작
+        async function startDiagnosis() {
+            const startBtn = document.getElementById('startBtn');
+            const reTakeBtn = document.getElementById('reTakeBtn');
+            
+            // 버튼 상태 변경
+            startBtn.disabled = true;
+            startBtn.innerHTML = '진단 중. ..';
+            reTakeBtn.style.display = 'none';
+            
+            // Session ID 생성
+            state.sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            document.getElementById('currentSessionId').textContent = state.sessionId;
+            
+            try {
+                // 카메라에서 이미지 캡처
+                const canvas = document.getElementById('captureCanvas');
+                const ctx = canvas.getContext('2d');
+                const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // canvas 를 이미지로 변환
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = image.width;
+                tempCanvas.height = image.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.putImageData(image, 0, 0);
+                
+                const imageDataUrl = tempCanvas.toDataURL('image/jpeg', 0.9);
+                const imageBlob = await fetch(imageDataUrl).then(r => r.blob());
+                const imageFile = new File([imageBlob], 'diagnosis.jpg', { type: 'image/jpeg' });
+                
+                // 이미지 업로드
+                const formData = new FormData();
+                formData.append('file', imageFile);
+                formData.append('session_id', state.sessionId);
+                
+                const response = await fetch(`${API_BASE}/analyze`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('분석 실패');
+                }
+                
+                const result = await response.json();
+                showResult(result);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                alert('진단 중 오류가 발생했습니다. 다시 시도해주세요.');
+            } finally {
+                startBtn.disabled = false;
+                startBtn.innerHTML = '진단 시작';
+            }
+        }
+
+        // 결과 표시
+        function showResult(result) {
+            const resultSection = document.getElementById('resultSection');
+            resultSection.classList.remove('hidden');
+            
+            // 배경색 설정
+            const seasonBg = document.getElementById('seasonBackground');
+            const seasonMap = {
+                'Spring': 'season-spring',
+                'Summer': 'season-summer',
+                'Autumn': 'season-autumn',
+                'Winter': 'season-winter'
+            };
+            seasonBg.className = `rounded-2xl p-6 mb-4 ${seasonMap[result.season]}`;
+            seasonBg.innerHTML = `
+                <h3 class="text-3xl font-bold text-center mb-2">${result.season_korean}</h3>
+                <p class="text-center text-gray-700">${result.season}</p>
+            `;
+            
+            // 도넛 차트 표시
+            showDonutChart(result.confidence);
+            
+            // 결과 정보
+            document.getElementById('sessionIdDisplay').textContent = `Session: ${result.session_id}`;
+            document.getElementById('seasonResult').textContent = result.season_korean;
+            document.getElementById('confidenceResult').textContent = `${(result.confidence * 100).toFixed(1)}%`;
+            document.getElementById('cheekRgb').textContent = `RGB(${result.palette[0][0].replace('#', '')})`;
+            document.getElementById('foreheadRgb').textContent = `RGB(${result.palette[1][0].replace('#', '')})`;
+            
+            // 메시지 표시
+            const messageBox = document.getElementById('messageBox');
+            const reTakeBtn = document.getElementById('reTakeBtn');
+            
+            if (result.re_take) {
+                messageBox.className = 'mb-4 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded-xl';
+                messageBox.innerHTML = `
+                    <p class="font-bold">⚠️ ${result.message}</p>
+                `;
+                reTakeBtn.style.display = 'inline-block';
+            } else {
+                messageBox.className = 'mb-4 bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded-xl';
+                messageBox.innerHTML = `
+                    <p class="font-bold">✅ ${result.message}</p>
+                `;
+                reTakeBtn.style.display = 'none';
+            }
+        }
+
+        // 도넛 차트 표시
+        function showDonutChart(confidence) {
+            const ctx = document.getElementById('donutChart').getContext('2d');
+            
+            if (donutChart) {
+                donutChart.destroy();
+            }
+            
+            donutChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['진단 완료', '불확실'],
+                    datasets: [{
+                        data: [confidence * 100, (1 - confidence) * 100],
+                        backgroundColor: [
+                            confidence >= 0.8 ? '#4CAF50' : 
+                                    confidence < 0.6 ? '#F44336' : '#FF9800',
+                            '#E0E0E0'
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    cutout: '75%',
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw.toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    },
+                    animation: {
+                        animateScale: true,
+                        animateRotate: true
+                    }
+                }
+            });
+        }
+
+        // 결과 초기화
+        function clearResults() {
+            state.diagnosisResult = null;
+            document.getElementById('resultSection').classList.add('hidden');
+            document.getElementById('currentSessionId').textContent = '';
+        }
+
+        // WebSocket 연결
+        let ws = null;
+        
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${API_BASE.replace('http', 'ws')}/ws`);
+            
+            ws.onopen = () => {
+                console.log('WebSocket 연결됨');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'frame') {
+                    // 프레임 수신
+                    const canvas = document.getElementById('captureCanvas');
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0);
+                    };
+                    img.src = `data:image/jpeg;base64,${data.frame}`;
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket 에러:', error);
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket 연결 종료');
+            };
+        }
+        
+        // 앱 시작
+        function mountApp() {
+            // WebSocket 연결
+            connectWebSocket();
+            
+            // 캔버스 크기 설정 (HMI 해상도)
+            const canvas = document.getElementById('captureCanvas');
+            canvas.width = 1280;
+            canvas.height = 800;
+            
+            // 메인 컨테이너
+            const app = document.getElementById('app');
+            const container = document.createElement('div');
+            container.className = 'flex flex-col h-full max-w-4xl mx-auto p-4';
+            
+            // 헤더
+            const header = createHeader();
+            container.appendChild(header);
+            
+            // 메인 컨텐츠
+            const main = createMainContent();
+            container.appendChild(main);
+            
+            // 하단 정보
+            const footer = createFooter();
+            container.appendChild(footer);
+            
+            app.appendChild(container);
+        }
+
+        // 헤더 컴포넌트
+        function createHeader() {
+            const header = document.createElement('div');
+            header.className = 'bg-white rounded-2xl shadow-md p-4 mb-4';
+            header.innerHTML = `
+                <h1 class="text-2xl font-bold text-gray-800 text-center">
+                    🎨 퍼스널 컬러 진단 시스템
+                </h1>
+                <p class="text-sm text-gray-500 text-center mt-1">
+                    ED-HMI3010-101C 기반 AI 진단
+                </p>
+            `;
+            return header;
+        }
+
+        // 메인 컨텐츠 컴포넌트
+        function createMainContent() {
+            const main = document.createElement('div');
+            main.className = 'flex-1 flex flex-col';
+            
+            // 진단 시작 섹션
+            const startSection = createStartSection();
+            main.appendChild(startSection);
+            
+            // 결과 섹션 (초기에는 숨김)
+            const resultSection = createResultSection();
+            main.appendChild(resultSection);
+            
+            return main;
+        }
+
+        // 진단 시작 섹션
+        function createStartSection() {
+            const section = document.createElement('div');
+            section.className = 'bg-white rounded-2xl shadow-md p-6 mb-4';
+            section.innerHTML = `
+                <div class="text-center">
+                    <div class="mb-4">
+                        <span class="text-6xl">📸</span>
+                    </div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">진단 시작</h2>
+                    <p class="text-gray-600 mb-4">
+                        카메라를 통해 얼굴을 촬영하여 퍼스널 컬러를 진단합니다.
+                    </p>
+                    <button onclick="startDiagnosis()" 
+                            class="btn-primary touch-target inline-block"
+                            id="startBtn">
+                        진단 시작
+                    </button>
+                    <p class="text-xs text-gray-400 mt-3">
+                        💡 장갑을 끼거나 손가락으로 터치하기 쉽도록 디자인되었습니다
+                    </p>
+                </div>
+            `;
+            return section;
+        }
+
+        // 결과 섹션
+        function createResultSection() {
+            const section = document.createElement('div');
+            section.className = 'hidden bg-white rounded-2xl shadow-md p-6';
+            section.id = 'resultSection';
+            section.innerHTML = `
+                <div class="text-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">진단 결과</h2>
+                    <p class="text-gray-500" id="sessionIdDisplay"></p>
+                </div>
+                
+                <!-- 계절 배경 -->
+                <div id="seasonBackground" class="rounded-2xl p-6 mb-4"></div>
+                
+                <!-- 도넛 차트 -->
+                <div class="flex justify-center mb-4">
+                    <div class="relative w-48 h-48">
+                        <canvas id="donutChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 결과 정보 -->
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-sm text-gray-500">진단된 계절</p>
+                        <p class="text-xl font-bold" id="seasonResult"></p>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-sm text-gray-500">신뢰도</p>
+                        <p class="text-xl font-bold" id="confidenceResult"></p>
+                    </div>
+                </div>
+                
+                <!-- 메시지 -->
+                <div id="messageBox" class="mb-4"></div>
+                
+                <!-- 재촬영 버튼 -->
+                <button onclick="startDiagnosis()" 
+                        class="btn-secondary touch-target inline-block w-full"
+                        id="reTakeBtn" style="display: none;">
+                        다시 촬영
+                </button>
+                
+                <!-- 상세 정보 -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <h3 class="font-bold text-gray-700 mb-2">세부 정보</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div class="bg-gray-50 rounded-lg p-2">
+                            <p class="text-gray-500">양볼 RGB</p>
+                            <p class="font-mono" id="cheekRgb"></p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-2">
+                            <p class="text-gray-500">이마 RGB</p>
+                            <p class="font-mono" id="foreheadRgb"></p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return section;
+        }
+
+        // 하단 정보
+        function createFooter() {
+            const footer = document.createElement('div');
+            footer.className = 'bg-white rounded-2xl shadow-md p-4 mt-4';
+            footer.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <p class="text-sm text-gray-500">
+                        Session ID: <span id="currentSessionId" class="font-mono"></span>
+                    </p>
+                    <button onclick="clearResults()" 
+                            class="text-sm text-red-500 hover:text-red-700">
+                        결과 초기화
+                    </button>
+                </div>
+            `;
+            return footer;
+        }
+
+        // 진단 시작
+        async function startDiagnosis() {
+            const startBtn = document.getElementById('startBtn');
+            const reTakeBtn = document.getElementById('reTakeBtn');
+            
+            // 버튼 상태 변경
+            startBtn.disabled = true;
+            startBtn.innerHTML = '진단 중. ..';
+            reTakeBtn.style.display = 'none';
+            
+            // Session ID 생성
+            state.sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            document.getElementById('currentSessionId').textContent = state.sessionId;
+            
+            try {
+                // canvas 를 이미지로 변환
+                const canvas = document.getElementById('captureCanvas');
+                const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+                const imageBlob = await fetch(imageDataUrl).then(r => r.blob());
+                const imageFile = new File([imageBlob], 'diagnosis.jpg', { type: 'image/jpeg' });
+                
+                // 이미지 업로드
+                const formData = new FormData();
+                formData.append('file', imageFile);
+                formData.append('session_id', state.sessionId);
+                
+                const response = await fetch(`${API_BASE}/analyze`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('분석 실패');
+                }
+                
+                const result = await response.json();
+                showResult(result);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                alert('진단 중 오류가 발생했습니다. 다시 시도해주세요.');
+            } finally {
+                startBtn.disabled = false;
+                startBtn.innerHTML = '진단 시작';
+            }
+        }
+
+        // 결과 표시
+        function showResult(result) {
+            const resultSection = document.getElementById('resultSection');
+            resultSection.classList.remove('hidden');
+            
+            // 배경색 설정
+            const seasonBg = document.getElementById('seasonBackground');
+            const seasonMap = {
+                'Spring': 'season-spring',
+                'Summer': 'season-summer',
+                'Autumn': 'season-autumn',
+                'Winter': 'season-winter'
+            };
+            seasonBg.className = `rounded-2xl p-6 mb-4 ${seasonMap[result.season]}`;
+            seasonBg.innerHTML = `
+                <h3 class="text-3xl font-bold text-center mb-2">${result.season_korean}</h3>
+                <p class="text-center text-gray-700">${result.season}</p>
+            `;
+            
+            // 도넛 차트 표시
+            showDonutChart(result.confidence);
+            
+            // 결과 정보
+            document.getElementById('sessionIdDisplay').textContent = `Session: ${result.session_id}`;
+            document.getElementById('seasonResult').textContent = result.season_korean;
+            document.getElementById('confidenceResult').textContent = `${(result.confidence * 100).toFixed(1)}%`;
+            
+            // 메시지 표시
+            const messageBox = document.getElementById('messageBox');
+            const reTakeBtn = document.getElementById('reTakeBtn');
+            
+            if (result.re_take) {
+                messageBox.className = 'mb-4 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded-xl';
+                messageBox.innerHTML = `
+                    <p class="font-bold">⚠️ ${result.message}</p>
+                `;
+                reTakeBtn.style.display = 'inline-block';
+            } else {
+                messageBox.className = 'mb-4 bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded-xl';
+                messageBox.innerHTML = `
+                    <p class="font-bold">✅ ${result.message}</p>
+                `;
+                reTakeBtn.style.display = 'none';
+            }
+        }
+
+        // 도넛 차트 표시
+        function showDonutChart(confidence) {
+            const ctx = document.getElementById('donutChart').getContext('2d');
+            
+            if (donutChart) {
+                donutChart.destroy();
+            }
+            
+            donutChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['진단 완료', '불확실'],
+                    datasets: [{
+                        data: [confidence * 100, (1 - confidence) * 100],
+                        backgroundColor: [
+                            confidence >= 0.8 ? '#4CAF50' : 
+                                    confidence < 0.6 ? '#F44336' : '#FF9800',
+                            '#E0E0E0'
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    cutout: '75%',
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw.toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    },
+                    animation: {
+                        animateScale: true,
+                        animateRotate: true
+                    }
+                }
+            });
+        }
+
+        // 결과 초기화
+        function clearResults() {
+            state.diagnosisResult = null;
+            document.getElementById('resultSection').classList.add('hidden');
+            document.getElementById('currentSessionId').textContent = '';
+        }
