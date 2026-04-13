@@ -1,0 +1,218 @@
+"""
+kiosk/ui.py
+────────────
+PyQt6 메인 윈도우 및 화면 전환 관리자.
+QStackedWidget으로 각 화면을 전환.
+1280×800 해상도에 최적화.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from typing import Any, Dict, Optional
+
+import httpx
+import cv2
+import numpy as np
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QApplication
+
+from kiosk.camera import CameraThread
+from kiosk.screens.idle_screen          import IdleScreen
+from kiosk.screens.guide_screen         import GuideScreen
+from kiosk.screens.analysis_screen      import AnalysisScreen
+from kiosk.screens.result_screen        import ResultScreen
+from kiosk.screens.recommendation_screen import RecommendationScreen
+from kiosk.screens.qr_screen            import QRScreen
+
+logger = logging.getLogger(__name__)
+
+DISPLAY_W = 1280
+DISPLAY_H = 800
+
+API_BASE    = "http://127.0.0.1:8000/api/v1"
+API_KEY     = "kiosk-dev-key-2024"
+
+
+# ── 백그라운드 API 워커 ───────────────────────────────────────────────────
+class _AnalyzeWorker(QThread):
+    """FastAPI /analyze 를 별도 스레드에서 호출."""
+
+    finished = pyqtSignal(dict)
+    failed   = pyqtSignal(str)
+
+    def __init__(self, bgr_frame: np.ndarray, session_id: str) -> None:
+        super().__init__()
+        self._frame      = bgr_frame
+        self._session_id = session_id
+
+    def run(self) -> None:
+        try:
+            success, buf = cv2.imencode(".jpg", self._frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            if not success:
+                self.failed.emit("이미지 인코딩 실패")
+                return
+
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(
+                    f"{API_BASE}/analyze",
+                    headers={"x-api-key": API_KEY},
+                    files={"image_file": ("face.jpg", buf.tobytes(), "image/jpeg")},
+                    data={"session_id": self._session_id},
+                )
+            if resp.status_code == 200:
+                self.finished.emit(resp.json())
+            else:
+                self.failed.emit(f"서버 오류: {resp.status_code}")
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+# ── 메인 윈도우 ───────────────────────────────────────────────────────────
+class KioskWindow(QMainWindow):
+    """1280×800 전체화면 키오스크 메인 윈도우."""
+
+    # 화면 인덱스
+    _IDX_IDLE   = 0
+    _IDX_GUIDE  = 1
+    _IDX_ANALYSIS = 2
+    _IDX_RESULT = 3
+    _IDX_RECO   = 4
+    _IDX_QR     = 5
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Personal Color Kiosk")
+        self.setFixedSize(DISPLAY_W, DISPLAY_H)
+        # 커서 숨기기 (터치 키오스크)
+        self.setCursor(Qt.CursorShape.BlankCursor)
+
+        self._session_id: str = ""
+        self._result_data: Dict[str, Any] = {}
+        self._snapshot: Optional[np.ndarray] = None
+        self._analyze_worker: Optional[_AnalyzeWorker] = None
+
+        self._build_stack()
+        self._init_camera()
+        self._goto_idle()
+
+    # ------------------------------------------------------------------ #
+    def _build_stack(self) -> None:
+        self._stack = QStackedWidget()
+        self.setCentralWidget(self._stack)
+
+        self._idle    = IdleScreen()
+        self._guide   = GuideScreen()
+        self._analysis = AnalysisScreen()
+        self._result  = ResultScreen()
+        self._reco    = RecommendationScreen()
+        self._qr      = QRScreen()
+
+        self._stack.addWidget(self._idle)      # 0
+        self._stack.addWidget(self._guide)     # 1
+        self._stack.addWidget(self._analysis)  # 2
+        self._stack.addWidget(self._result)    # 3
+        self._stack.addWidget(self._reco)      # 4
+        self._stack.addWidget(self._qr)        # 5
+
+        # ── 시그널 연결 ────────────────────────────────────────────────
+        self._idle.start_requested.connect(self._goto_guide)
+
+        self._guide.capture_requested.connect(self._on_capture)
+        self._guide.back_requested.connect(self._goto_idle)
+
+        self._result.next_requested.connect(self._goto_reco)
+        self._result.retry_requested.connect(self._goto_guide)
+
+        self._reco.qr_requested.connect(self._goto_qr)
+        self._reco.back_requested.connect(self._goto_result)
+
+        self._qr.home_requested.connect(self._goto_idle)
+
+    # ------------------------------------------------------------------ #
+    def _init_camera(self) -> None:
+        self._cam = CameraThread(camera_index=0)
+        self._cam.frame_ready.connect(self._guide.update_frame)
+        self._cam.error_occurred.connect(self._on_camera_error)
+        self._cam.start()
+
+    # ── 화면 전환 메서드 ──────────────────────────────────────────────────
+    def _goto_idle(self) -> None:
+        self._session_id = str(uuid.uuid4())
+        self._stack.setCurrentIndex(self._IDX_IDLE)
+
+    def _goto_guide(self) -> None:
+        self._guide.reset()
+        self._stack.setCurrentIndex(self._IDX_GUIDE)
+
+    def _goto_analysis(self) -> None:
+        self._analysis.start()
+        self._stack.setCurrentIndex(self._IDX_ANALYSIS)
+
+    def _goto_result(self) -> None:
+        self._analysis.stop()
+        if self._result_data:
+            self._result.set_result(self._result_data)
+        self._stack.setCurrentIndex(self._IDX_RESULT)
+
+    def _goto_reco(self) -> None:
+        self._reco.set_data(
+            self._result_data.get("label_ko", ""),
+            self._result_data.get("recommendations", {}),
+        )
+        self._stack.setCurrentIndex(self._IDX_RECO)
+
+    def _goto_qr(self) -> None:
+        self._qr.set_session(
+            self._session_id,
+            self._result_data.get("label_ko", ""),
+        )
+        self._stack.setCurrentIndex(self._IDX_QR)
+
+    # ── 이벤트 핸들러 ────────────────────────────────────────────────────
+    def _on_capture(self) -> None:
+        """촬영 버튼 → 스냅샷 → 분석 화면으로 전환 → API 호출."""
+        snapshot = self._cam.take_snapshot()
+        if snapshot is None:
+            self._guide.reset()
+            return
+
+        self._snapshot = snapshot
+
+        # 얼굴 미리보기를 분석 화면에 전달
+        h, w = snapshot.shape[:2]
+        rgb = cv2.cvtColor(snapshot, cv2.COLOR_BGR2RGB)
+        qimg = QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888)
+        self._analysis.set_face_pixmap(QPixmap.fromImage(qimg))
+
+        self._goto_analysis()
+        self._start_analyze()
+
+    def _start_analyze(self) -> None:
+        self._analyze_worker = _AnalyzeWorker(self._snapshot, self._session_id)
+        self._analyze_worker.finished.connect(self._on_analyze_finished)
+        self._analyze_worker.failed.connect(self._on_analyze_failed)
+        self._analyze_worker.start()
+
+    def _on_analyze_finished(self, data: Dict[str, Any]) -> None:
+        self._result_data = data
+        self._goto_result()
+
+    def _on_analyze_failed(self, msg: str) -> None:
+        logger.error(f"Analyze failed: {msg}")
+        self._analysis.stop()
+        # 오류 메시지 표시 후 가이드 화면으로
+        self._goto_guide()
+
+    def _on_camera_error(self, msg: str) -> None:
+        logger.error(f"Camera error: {msg}")
+
+    # ── 종료 처리 ─────────────────────────────────────────────────────────
+    def closeEvent(self, event) -> None:
+        self._cam.stop()
+        if self._analyze_worker and self._analyze_worker.isRunning():
+            self._analyze_worker.quit()
+            self._analyze_worker.wait(2000)
+        super().closeEvent(event)

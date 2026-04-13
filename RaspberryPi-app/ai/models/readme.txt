@@ -1,0 +1,1 @@
+personal_color.pt 이름으로 저장후 모델 집어 넣을것. 
