@@ -1,0 +1,18 @@
+# Python 3.11 또는 3.12 필수 — mediapipe는 Python 3.13 미지원
+# PyQt6 ARM64(Raspberry Pi): pip 미지원 → sudo apt install python3-pyqt6 사용
+PyQt6>=6.4.0
+torch>=2.6.0
+torchvision>=0.21.0
+scikit-learn>=1.3.0
+opencv-python>=4.8.0
+mediapipe>=0.10.5
+pandas>=2.1.0
+matplotlib>=3.8.0
+numpy>=1.25.0
+Pillow>=12.2.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+httpx>=0.25.0
+qrcode>=7.4.2
