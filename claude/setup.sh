@@ -44,7 +44,8 @@ FRONTEND_BUILD_DIR="$FRONTEND_DIR/build"
 SERVE_DIR="/var/www/personal-color"
 
 # ── 기본값 ────────────────────────────────────────────────────────────────────
-DOMAIN=""
+DOMAIN="personalootd.kro.kr"           # 기본 도메인 (--domain 으로 덮어쓰기 가능)
+CERT_EMAIL="kimkimwoo1234@gmail.com"   # Let's Encrypt 이메일 (--email 으로 덮어쓰기 가능)
 BACKEND_PORT=5000
 KIOSK_API_KEY="kiosk-$(openssl rand -hex 8)"
 MONGODB_URI="mongodb://localhost:27017/personal_color"
@@ -52,7 +53,6 @@ NODE_VERSION="22"
 MONGODB_VERSION="8.0"
 SERVICE_NAME="personal-color-backend"
 APP_USER="personal-color"
-CERT_EMAIL=""       # Let's Encrypt 이메일 (--email)
 SKIP_HTTPS=false    # --skip-https 시 HTTPS 발급 생략
 
 # ── 인수 파싱 ─────────────────────────────────────────────────────────────────
@@ -105,25 +105,9 @@ fi
 [[ -d "$BACKEND_DIR" ]]  || err "backend 폴더를 찾을 수 없습니다: $BACKEND_DIR"
 [[ -d "$FRONTEND_DIR" ]] || err "frontend 폴더를 찾을 수 없습니다: $FRONTEND_DIR"
 
-# 공인 IP 자동 감지 (domain 미지정 시)
-if [[ -z "$DOMAIN" ]]; then
-  PUBLIC_IP=$(curl -4 -sf --max-time 5 https://icanhazip.com \
-           || curl -4 -sf --max-time 5 https://api.ipify.org \
-           || echo "")
-  if [[ -n "$PUBLIC_IP" ]]; then
-    DOMAIN="$PUBLIC_IP"
-    warn "도메인 미지정 — 공인 IP 사용: $DOMAIN"
-    warn "도메인 사용 시: sudo bash setup.sh --domain example.com"
-  else
-    DOMAIN="localhost"
-    warn "공인 IP 감지 실패 — localhost 사용"
-  fi
-fi
-
-# 실제 도메인이고 HTTPS 스킵이 아닌 경우 → https:// 로 빌드
+# HTTPS 스킵이 아닌 경우 → https:// 로 빌드
 if _is_real_domain "$DOMAIN" && ! $SKIP_HTTPS; then
   BASE_URL="https://$DOMAIN"
-  info "실제 도메인 감지 — HTTPS URL 기준으로 빌드합니다"
 else
   BASE_URL="http://$DOMAIN"
 fi
@@ -136,7 +120,9 @@ log "백엔드 포트: $BACKEND_PORT"
 # =============================================================================
 step "시스템 패키지 업데이트"
 
-dnf update -y -q
+info "패키지 목록 업데이트 중... (수분 소요될 수 있습니다)"
+dnf update -y
+log "패키지 업데이트 완료"
 
 # OL 10은 python3-policycoreutils 패키지명으로 변경됨
 if [[ "$OL_VERSION" -ge 10 ]]; then
@@ -145,7 +131,8 @@ else
   SEMANAGE_PKG="policycoreutils-python-utils"
 fi
 
-dnf install -y -q curl wget git tar openssl ca-certificates gnupg2 \
+info "기본 도구 설치 중..."
+dnf install -y curl wget git tar openssl ca-certificates gnupg2 \
   "$SEMANAGE_PKG" firewalld
 log "기본 도구 설치 완료"
 
@@ -159,7 +146,7 @@ step "Node.js $NODE_VERSION.x LTS 설치"
 _install_node_nodesource() {
   info "NodeSource 저장소 등록 중..."
   if curl -fsSL "https://rpm.nodesource.com/setup_${NODE_VERSION}.x" | bash - >/dev/null 2>&1; then
-    dnf install -y -q nodejs
+    dnf install -y nodejs
     return 0
   fi
   return 1
@@ -167,9 +154,9 @@ _install_node_nodesource() {
 
 _install_node_appstream() {
   info "AppStream 모듈로 Node.js 설치 중 (nodejs:$NODE_VERSION)..."
-  dnf module reset nodejs -y -q 2>/dev/null || true
-  if dnf module enable "nodejs:${NODE_VERSION}" -y -q 2>/dev/null; then
-    dnf install -y -q nodejs npm
+  dnf module reset nodejs -y 2>/dev/null || true
+  if dnf module enable "nodejs:${NODE_VERSION}" -y 2>/dev/null; then
+    dnf install -y nodejs npm
     return 0
   fi
   return 1
@@ -207,7 +194,8 @@ enabled=1
 gpgkey=https://pgp.mongodb.com/server-${MONGODB_VERSION}.asc
 EOF
 
-  dnf install -y -q mongodb-org
+  info "MongoDB $MONGODB_VERSION 설치 중..."
+  dnf install -y mongodb-org
   log "MongoDB $MONGODB_VERSION 설치 완료"
 
   # SELinux 허용 (OL 기본값)
@@ -230,7 +218,7 @@ fi
 step "nginx 설치"
 
 if ! command -v nginx &>/dev/null; then
-  dnf install -y -q nginx
+  dnf install -y nginx
   log "nginx 설치 완료"
 else
   log "nginx $(nginx -v 2>&1 | grep -oP '[\d.]+') 이미 설치됨"
@@ -280,6 +268,7 @@ fi
 step "backend npm 패키지 설치"
 
 cd "$BACKEND_DIR"
+info "backend npm 패키지 설치 중..."
 npm ci --omit=dev --prefer-offline 2>/dev/null || npm install --omit=dev
 log "backend npm 패키지 설치 완료"
 
@@ -303,8 +292,9 @@ else
 fi
 
 cd "$FRONTEND_DIR"
+info "frontend npm 패키지 설치 중..."
 npm ci --prefer-offline 2>/dev/null || npm install
-info "React 프로덕션 빌드 시작 (2~5분 소요)..."
+info "React 프로덕션 빌드 시작 중... (2~5분 소요, 기다려 주세요)"
 npm run build
 log "React 빌드 완료: $FRONTEND_BUILD_DIR"
 
@@ -567,7 +557,7 @@ else
       fi
     fi
 
-    dnf install -y -q certbot python3-certbot-nginx || \
+    dnf install -y certbot python3-certbot-nginx || \
       err "certbot 설치 실패. EPEL이 활성화되어 있는지 확인하세요."
     log "certbot 설치 완료"
   else
