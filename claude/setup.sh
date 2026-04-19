@@ -183,12 +183,15 @@ if systemctl is-active --quiet mongod 2>/dev/null; then
 else
   # OL 10 이상은 el10 저장소 사용, 그 이하는 버전 그대로
   MONGO_EL_VER="$OL_VERSION"
+  # CPU 아키텍처 자동 감지 (x86_64 / aarch64)
+  MONGO_ARCH=$(uname -m)
+  log "서버 아키텍처: $MONGO_ARCH"
 
   # MongoDB 저장소 등록
   cat > /etc/yum.repos.d/mongodb-org-${MONGODB_VERSION}.repo << EOF
 [mongodb-org-${MONGODB_VERSION}]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/${MONGO_EL_VER}/mongodb-org/${MONGODB_VERSION}/x86_64/
+baseurl=https://repo.mongodb.org/yum/redhat/${MONGO_EL_VER}/mongodb-org/${MONGODB_VERSION}/${MONGO_ARCH}/
 gpgcheck=1
 enabled=1
 gpgkey=https://pgp.mongodb.com/server-${MONGODB_VERSION}.asc
