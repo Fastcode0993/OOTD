@@ -2,6 +2,7 @@
 # =============================================================================
 #  Personal Color Cloud — 업데이트/재배포 스크립트
 #  setup.sh 이후 코드 변경사항을 반영할 때 사용
+#  지원: Oracle Linux 8 / 9 / 10
 #
 #  사용법: sudo bash update.sh
 # =============================================================================
@@ -48,6 +49,14 @@ log "frontend 빌드 및 배포 완료"
 systemctl restart "$SERVICE_NAME"
 systemctl reload nginx
 log "서비스 재시작 완료"
+
+# ── 5. Let's Encrypt 인증서 갱신 시도 (유효기간 30일 미만 시 실제 갱신) ────────
+if command -v certbot &>/dev/null; then
+  info "인증서 갱신 확인 중..."
+  certbot renew --quiet --post-hook "systemctl reload nginx" 2>/dev/null && \
+    log "인증서 갱신 확인 완료" || \
+    warn "인증서 갱신 불필요하거나 실패 — 로그: journalctl -u certbot-renew"
+fi
 
 echo -e "\n${BOLD}${GREEN}업데이트 완료!${RESET}"
 systemctl status "$SERVICE_NAME" --no-pager -l | head -5
