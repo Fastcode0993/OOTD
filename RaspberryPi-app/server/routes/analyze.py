@@ -35,7 +35,8 @@ from server.services.recommendation import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_API_KEY          = os.getenv("KIOSK_API_KEY",    "kiosk-dev-key-2024")
+_API_KEY          = os.getenv("KIOSK_API_KEY",    "kiosk-dev-key-2024")  # 로컬 FastAPI 인증
+_CLOUD_API_KEY    = os.getenv("CLOUD_API_KEY",    _API_KEY)              # 클라우드 인증 (별도 설정 가능)
 _CLOUD_API_URL    = os.getenv("CLOUD_API_URL",    "https://personalootd.kro.kr/api")
 _CLOUD_APP_BASE   = os.getenv("CLOUD_APP_BASE",   "https://personalootd.kro.kr")
 
@@ -55,7 +56,7 @@ async def _sync_to_cloud(payload: dict) -> Optional[str]:
             resp = await client.post(
                 f"{_CLOUD_API_URL}/save-diagnosis",
                 json=payload,
-                headers={"x-api-key": _API_KEY},
+                headers={"x-api-key": _CLOUD_API_KEY},
             )
             if resp.status_code == 200:
                 data = resp.json()
