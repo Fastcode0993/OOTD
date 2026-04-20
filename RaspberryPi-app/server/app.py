@@ -25,6 +25,7 @@ if str(_root) not in sys.path:
 
 from ai.model_loader import ModelLoader
 from server.routes.analyze import router as analyze_router
+from server.routes.result_page import router as result_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI):
     _init_db()
 
     # AI 모델 미리 로드 (첫 요청 지연 방지)
-    model_path = str(_root / "ai" / "models" / "hierarchical.pt")
+    model_path = str(_root / "ai" / "models" / "final_hierarchical.pt")
     loader = ModelLoader()
     loader.load(model_path)
 
@@ -71,7 +72,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — localhost 전용 (키오스크 로컬 통신만 허용)
+# CORS — 기본: localhost 전용 (키오스크 로컬 통신)
+# 클라우드 배포(OL 10) 시: 환경변수 CLIENT_URL 로 외부 오리진 추가
 _ALLOWED_ORIGINS = [
     "http://127.0.0.1",
     "http://127.0.0.1:3000",
@@ -79,16 +81,22 @@ _ALLOWED_ORIGINS = [
     "http://localhost",
     "http://localhost:3000",
     "http://localhost:8000",
+    "*",  # 개발 환경: 로컬 네트워크 IP(192.168.x.x 등) 허용
 ]
+_client_url = os.getenv("CLIENT_URL", "")
+if _client_url and _client_url not in _ALLOWED_ORIGINS:
+    _ALLOWED_ORIGINS.append(_client_url)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "x-api-key"],
+    allow_credentials=False,
 )
 
 # 라우터 등록
 app.include_router(analyze_router, prefix="/api/v1", tags=["Analyze"])
+app.include_router(result_router, tags=["Result"])
 
 
 @app.get("/health")

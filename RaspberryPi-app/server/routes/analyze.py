@@ -25,6 +25,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from ai.infer import run_inference
+from ai.model_loader import _DESCRIPTION_KO
 from server.services.recommendation import (
     get_color_type_info,
     get_recommendations,
@@ -35,8 +36,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _API_KEY          = os.getenv("KIOSK_API_KEY",    "kiosk-dev-key-2024")
-_CLOUD_API_URL    = os.getenv("CLOUD_API_URL",    "http://localhost:5000/api")
-_CLOUD_APP_BASE   = os.getenv("CLOUD_APP_BASE",   "http://localhost:3000")
+_CLOUD_API_URL    = os.getenv("CLOUD_API_URL",    "https://personalootd.kro.kr/api")
+_CLOUD_APP_BASE   = os.getenv("CLOUD_APP_BASE",   "https://personalootd.kro.kr")
 
 
 def verify_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
@@ -54,6 +55,7 @@ async def _sync_to_cloud(payload: dict) -> Optional[str]:
             resp = await client.post(
                 f"{_CLOUD_API_URL}/save-diagnosis",
                 json=payload,
+                headers={"x-api-key": _API_KEY},
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -111,11 +113,13 @@ async def analyze(
 
     # ── 클라우드 동기화 → QR 코드 ──────────────────────────────────────
     color_info = get_color_type_info(personal_color) or {}
+    if not color_info.get("description_ko"):
+        color_info["description_ko"] = _DESCRIPTION_KO.get(personal_color, "")
     cloud_payload = {
         "session_id":         session_id,
-        "season":             infer_result.get("season"),
-        "tone":               personal_color.split("_", 1)[1] if "_" in personal_color else "",
-        "personal_color":     personal_color,
+        "season":             (infer_result.get("season") or "").lower(),
+        "tone":               personal_color.split("_", 1)[1].lower() if "_" in personal_color else "",
+        "personal_color":     personal_color.lower(),
         "label_ko":           infer_result["label_ko"],
         "label_en":           infer_result["label_en"],
         "season_confidence":  infer_result.get("season_confidence", 0.0),
@@ -148,6 +152,10 @@ async def analyze(
         "label_ko":           infer_result["label_ko"],
         "label_en":           infer_result["label_en"],
         "season":             infer_result.get("season"),
+        "season_ko":          infer_result.get("season_ko", ""),
+        "undertone":          infer_result.get("undertone", ""),
+        "tone":               infer_result.get("tone", ""),
+        "tone_ko":            infer_result.get("tone_ko", ""),
         "season_confidence":  infer_result.get("season_confidence", 0.0),
         "tone_confidence":    infer_result.get("tone_confidence", 0.0),
         "confidence":         infer_result["confidence"],

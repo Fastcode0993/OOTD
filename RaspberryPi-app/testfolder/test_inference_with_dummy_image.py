@@ -20,8 +20,8 @@ import sys
 from pathlib import Path
 import logging
 
-# 프로젝트 루트 추가
-_ROOT = Path(__file__).parent
+# 프로젝트 루트 추가 (testfolder의 상위 디렉토리)
+_ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -164,7 +164,7 @@ def main():
     print("\n[1/3] 모델 로딩 중...")
     try:
         loader = ModelLoader()
-        model_path = str(_ROOT / "ai" / "models" / "personal_color.pt")
+        model_path = str(_ROOT / "ai" / "models" / "final_hierarchical.pt")
         loader.load(model_path)
         print("✓ 모델 로드 완료\n")
     except Exception as e:

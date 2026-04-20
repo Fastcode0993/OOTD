@@ -45,15 +45,57 @@ class ResultScreen(QWidget):
             f"color: {GOLD}; font-size: 14px; letter-spacing: 5px;"
         )
         layout.addWidget(sub)
-        layout.addSpacing(16)
+        layout.addSpacing(12)
 
-        # 퍼스널 컬러 라벨 (크게)
-        self._color_label = QLabel("—")
-        self._color_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._color_label.setStyleSheet(
-            f"color: {CREAM}; font-family: Georgia; font-size: 48px;"
+        # ── 2단계 진단 배지 행 ────────────────────────────────────────────
+        badge_row = QHBoxLayout()
+        badge_row.setSpacing(20)
+        badge_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # 계절 + 세부톤 통합 배지
+        season_box = QWidget()
+        season_box.setFixedSize(200, 72)
+        season_layout = QVBoxLayout(season_box)
+        season_layout.setContentsMargins(8, 6, 8, 6)
+        season_layout.setSpacing(2)
+        season_hint = QLabel("계절 · 톤")
+        season_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        season_hint.setStyleSheet(f"color: {GOLD}; font-size: 11px; letter-spacing: 2px;")
+        self._season_label = QLabel("—")
+        self._season_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._season_label.setStyleSheet(
+            f"color: {CREAM}; font-family: Georgia; font-size: 22px; font-weight: bold;"
         )
-        layout.addWidget(self._color_label)
+        season_layout.addWidget(season_hint)
+        season_layout.addWidget(self._season_label)
+        season_box.setStyleSheet(
+            f"background: {CARD}; border: 1px solid {GOLD}; border-radius: 12px;"
+        )
+
+        # 웜톤/쿨톤 배지
+        undertone_box = QWidget()
+        undertone_box.setFixedSize(160, 72)
+        ut_layout = QVBoxLayout(undertone_box)
+        ut_layout.setContentsMargins(8, 6, 8, 6)
+        ut_layout.setSpacing(2)
+        ut_hint = QLabel("웜 / 쿨")
+        ut_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ut_hint.setStyleSheet(f"color: {GOLD}; font-size: 11px; letter-spacing: 2px;")
+        self._undertone_label = QLabel("—")
+        self._undertone_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._undertone_label.setStyleSheet(
+            f"color: {CREAM}; font-family: Georgia; font-size: 22px; font-weight: bold;"
+        )
+        ut_layout.addWidget(ut_hint)
+        ut_layout.addWidget(self._undertone_label)
+        undertone_box.setStyleSheet(
+            f"background: {CARD}; border: 1px solid #C4858A; border-radius: 12px;"
+        )
+
+        badge_row.addWidget(season_box)
+        badge_row.addWidget(undertone_box)
+        layout.addLayout(badge_row)
+        layout.addSpacing(8)
 
         # 신뢰도
         self._confidence_label = QLabel("")
@@ -63,7 +105,7 @@ class ResultScreen(QWidget):
         )
         layout.addWidget(self._confidence_label)
 
-        layout.addSpacing(24)
+        layout.addSpacing(16)
 
         # 설명
         self._desc_label = QLabel("")
@@ -112,13 +154,18 @@ class ResultScreen(QWidget):
     # ------------------------------------------------------------------ #
     def set_result(self, data: Dict[str, Any]) -> None:
         """FastAPI 응답 데이터를 받아 UI를 업데이트."""
-        label_ko   = data.get("label_ko", "알 수 없음")
+        season_ko  = data.get("season_ko",  data.get("season", ""))
+        undertone  = data.get("undertone",  "")
+        tone_ko    = data.get("tone_ko",    "")
         confidence = data.get("confidence", 0.0)
         description = data.get("description_ko", "")
         colors     = data.get("recommended_colors", [])
         top3       = data.get("top3", [])
 
-        self._color_label.setText(label_ko)
+        # ── 2단계 표시: 계절+세부톤 / 웜·쿨 ──────────────────────────
+        season_tone = f"{season_ko}  -  {tone_ko}" if tone_ko else season_ko
+        self._season_label.setText(season_tone)
+        self._undertone_label.setText(undertone)
         self._confidence_label.setText(f"적합도  {confidence * 100:.1f}%")
         self._desc_label.setText(description)
         self._palette_widget.set_colors(colors)

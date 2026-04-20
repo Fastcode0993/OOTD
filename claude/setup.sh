@@ -248,7 +248,8 @@ fi
 # =============================================================================
 step "backend 환경설정 (.env)"
 
-BACKEND_ENV="$BACKEND_DIR/.env"
+# EnvironmentFile은 /etc/ 에 두어야 SELinux(init_t)가 읽을 수 있음
+BACKEND_ENV="/etc/personal-color-backend.env"
 if [[ ! -f "$BACKEND_ENV" ]]; then
   cat > "$BACKEND_ENV" << EOF
 # Personal Color Cloud — Backend 환경설정
@@ -260,9 +261,11 @@ NODE_ENV=production
 CLIENT_URL=$BASE_URL
 KIOSK_API_KEY=$KIOSK_API_KEY
 EOF
-  log "backend .env 생성 완료"
+  chmod 640 "$BACKEND_ENV"
+  chown root:root "$BACKEND_ENV"
+  log "backend .env 생성 완료: $BACKEND_ENV"
 else
-  warn "backend .env 이미 존재 — 덮어쓰지 않음"
+  warn "backend .env 이미 존재 — 덮어쓰지 않음: $BACKEND_ENV"
 fi
 
 # =============================================================================
@@ -406,7 +409,7 @@ SyslogIdentifier=$SERVICE_NAME
 # 보안 강화
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=false
 ReadWritePaths=$BACKEND_DIR
 PrivateTmp=true
 
@@ -418,9 +421,15 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
-# 파일 권한 설정
+# 파일 권한 설정 — .env는 이미 /etc/ 에 생성됨, 앱 디렉토리만 소유권 변경
+# /home/ 하위 설치 시 중간 경로 실행 권한 부여
+_dir="$BACKEND_DIR"
+while [[ "$_dir" != "/" ]]; do
+  _parent=$(dirname "$_dir")
+  [[ "$_parent" == /home/* || "$_parent" == /home ]] && chmod o+x "$_parent" 2>/dev/null || true
+  _dir="$_parent"
+done
 chown -R "$APP_USER":root "$BACKEND_DIR"
-chmod 640 "$BACKEND_ENV"
 
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"

@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS diagnosis_results (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id      TEXT    NOT NULL UNIQUE,          -- 클라이언트가 생성한 UUID
     captured_at     TEXT    NOT NULL,                 -- ISO-8601 (UTC)
-    personal_color  TEXT    NOT NULL,                 -- e.g. "Spring Warm Light"
-    color_season    TEXT    NOT NULL,                 -- Spring / Summer / Autumn / Winter
-    color_tone      TEXT    NOT NULL,                 -- Warm / Cool
-    color_depth     TEXT    NOT NULL,                 -- Light / Deep / Bright / Muted
+    personal_color  TEXT    NOT NULL,                 -- e.g. "Summer_Warm"
+    color_season    TEXT    NOT NULL DEFAULT '',      -- Spring / Summer / Autumn / Winter
+    color_tone      TEXT    NOT NULL DEFAULT '',      -- Warm / Bright / Light
+    color_depth     TEXT    NOT NULL DEFAULT '',      -- (미사용, 호환성 유지)
     confidence      REAL    NOT NULL CHECK(confidence BETWEEN 0 AND 1),
     raw_scores      TEXT,                             -- JSON 문자열 (각 클래스 softmax 점수)
     image_path      TEXT,                             -- 저장된 얼굴 크롭 이미지 경로 (선택)

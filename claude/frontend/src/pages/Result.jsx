@@ -225,9 +225,9 @@ export default function Result() {
     const fetchResult = async () => {
       try {
         setLoading(true);
-        // 8자 대문자 QR 코드 vs UUID session_id 구분
+        // 32자 대문자 영숫자 = QR코드, 그 외 = session_id
         let endpoint;
-        if (/^[A-Z0-9]{8}$/.test(code)) {
+        if (/^[A-Z0-9]{32}$/.test(code)) {
           endpoint = `${API_BASE}/result/${code}`;
         } else {
           endpoint = `${API_BASE}/result/session/${code}`;
