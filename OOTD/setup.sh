@@ -58,7 +58,9 @@ $PIP install "protobuf>=4.25.0,<5.0.0"
 # ── MediaPipe ─────────────────────────────────────────────────
 # RPi5 (ARM64 Linux): mediapipe 0.10.14 공식 wheel 제공됨
 echo "[Step 4] MediaPipe 설치 (0.10.14)..."
-$PIP install "mediapipe==0.10.14"
+# piwheels jax 해시 불일치 방지: PyPI 단독 사용
+$PIP install "mediapipe==0.10.14" --index-url https://pypi.org/simple/ 2>/dev/null || \
+    echo "  MediaPipe 설치 실패 — Haarcascade fallback 사용"
 
 # ── PyTorch (RPi5 ARM64 전용 wheel) ───────────────────────────
 ARCH=$(uname -m)
@@ -90,9 +92,15 @@ $PIP install \
     "scikit-learn>=1.4.0" \
     "pandas>=2.2.0"
 
-# PyQt6 (pip 미지원 시 시스템 패키지 사용)
-$PIP install "PyQt6>=6.6.0" 2>/dev/null || \
-    echo "  PyQt6 pip 설치 실패 → 시스템 패키지(python3-pyqt6) 사용"
+# PyQt6: pip 설치 시도, 실패 시 시스템 패키지를 venv에 링크
+$PIP install "PyQt6>=6.6.0" 2>/dev/null || {
+    echo "  PyQt6 pip 설치 실패 → 시스템 패키지 venv 연결 시도"
+    # venv 사용 중이면 system site-packages 접근 허용
+    if [ -f ".venv/pyvenv.cfg" ]; then
+        sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' .venv/pyvenv.cfg
+        echo "  system-site-packages 활성화 완료"
+    fi
+}
 
 # ── 설치 확인 ─────────────────────────────────────────────────
 echo ""
