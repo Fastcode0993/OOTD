@@ -166,7 +166,15 @@ class ModelLoader:
             self._loaded = True
             return
 
-        ck = torch.load(str(pt), map_location="cpu", weights_only=False)
+        try:
+            ck = torch.load(str(pt), map_location="cpu", weights_only=False)
+        except Exception as e:
+            logger.warning(f"'{pt}' 로드 실패({e}) — random-init fallback.")
+            self._stage1 = _build_fusion_model(4).eval()
+            for s in SEASON_CLASSES:
+                self._stage2[s] = _build_fusion_model(3).eval()
+            self._loaded = True
+            return
 
         # ── Stage1 로드 ──────────────────────────────────────────────────
         s1_state = ck.get("stage1_state")
