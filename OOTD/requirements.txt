@@ -1,0 +1,19 @@
+# PyQt6 ARM64(Raspberry Pi): pip 미지원 → sudo apt install python3-pyqt6 사용
+# PyQt6 OL10 x86_64: pip install PyQt6 (Qt6 패키지 필요 시 dnf install qt6-qtbase)
+PyQt6>=6.6.0
+torch>=2.6.0
+torchvision>=0.21.0
+scikit-learn>=1.4.0
+opencv-python-headless>=4.9.0   # OL10 서버 배포 시 -headless 권장
+pandas>=2.2.0
+matplotlib>=3.8.0
+numpy>=1.26.0
+Pillow>=10.3.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+httpx>=0.27.0
+qrcode[pil]>=7.4.2
+mediapipe==0.10.14              # FaceMesh solutions API 마지막 안정 버전
+protobuf>=4.25.0,<5.0.0        # mediapipe 0.10.14 호환 (TF와 충돌 시 stub 우회 적용됨)
