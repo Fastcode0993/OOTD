@@ -128,7 +128,7 @@ class KioskWindow(QMainWindow):
         self._qr.home_requested.connect(self._goto_idle)
 
     def _init_camera(self) -> None:
-        self._cam = CameraThread(camera_index=0)
+        self._cam = CameraThread(camera_index=1)
         self._cam.frame_ready.connect(self._guide.update_frame)
         self._cam.error_occurred.connect(self._on_camera_error)
         self._cam.start()
