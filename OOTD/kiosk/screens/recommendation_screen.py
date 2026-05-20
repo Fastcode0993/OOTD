@@ -121,7 +121,7 @@ class RecommendationScreen(QWidget):
                 item.widget().deleteLater()
 
         if not items:
-            empty = QLabel("추천 아이템이 없습니다.")
+            empty = QLabel("추천 준비 중입니다.")
             empty.setStyleSheet(f"color: #666; font-size: 16px;")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._items_grid.addWidget(empty, 0, 0)

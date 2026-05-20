@@ -7,6 +7,7 @@ FastAPI 서버를 서브프로세스로 실행 후 PyQt6 키오스크 UI를 시�
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import subprocess
@@ -31,31 +32,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _start_server() -> subprocess.Popen:
+def _env_host_port() -> tuple[str, int]:
+    host = os.getenv("KIOSK_HOST", "127.0.0.1")
+    try:
+        port = int(os.getenv("KIOSK_PORT", "8000"))
+    except ValueError:
+        logger.warning("Invalid KIOSK_PORT, fallback to 8000")
+        port = 8000
+    return host, port
+
+
+def _start_server(host: str, port: int) -> subprocess.Popen:
     """FastAPI 서버를 백그라운드 프로세스로 시작."""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_ROOT)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn",
          "server.app:app",
-         "--host", "127.0.0.1",
-         "--port", "8000",
+         "--host", host,
+         "--port", str(port),
          "--workers", "1",
          "--log-level", "warning"],
         cwd=str(_ROOT),
         env=env,
     )
-    logger.info(f"FastAPI server started (PID={proc.pid})")
+    logger.info("FastAPI server started (PID=%s, %s:%s)", proc.pid, host, port)
     return proc
 
 
-def _wait_for_server(timeout: float = 15.0) -> bool:
+def _wait_for_server(host: str, port: int, timeout: float = 15.0) -> bool:
     """서버가 준비될 때까지 대기."""
     import urllib.request
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=1)
+            urllib.request.urlopen(f"http://{host}:{port}/health", timeout=1)
             logger.info("Server is ready.")
             return True
         except Exception:
@@ -63,53 +74,55 @@ def _wait_for_server(timeout: float = 15.0) -> bool:
     return False
 
 
-def main() -> None:
-    # ── FastAPI 서버 시작 ─────────────────────────────────────────────
-    server_proc = _start_server()
-    if not _wait_for_server():
-        logger.warning("Server did not start in time — continuing anyway.")
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--windowed", action="store_true")
+    parser.add_argument("--show-cursor", action="store_true")
+    parser.add_argument("--ui-preview", action="store_true")
+    return parser.parse_args()
 
-    # ── PyQt6 앱 초기화 ───────────────────────────────────────────────
+
+def main() -> None:
+    args = _parse_args()
+    host, port = _env_host_port()
+
+    server_proc: subprocess.Popen | None = None
+    if not args.ui_preview:
+        server_proc = _start_server(host, port)
+        if not _wait_for_server(host, port):
+            logger.warning("Server did not start in time — continuing anyway.")
+
     app = QApplication(sys.argv)
     app.setApplicationName("Personal Color Kiosk")
     app.setOrganizationName("ColorLab")
 
-    # 전역 스타일시트 — Noto Sans KR 폰트 로드 시도 (한글 렌더링)
     app.setStyleSheet("""
         * {
             font-family: 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
         }
-        QScrollBar:vertical {
-            background: #1A1512; width: 6px; border: none;
-        }
-        QScrollBar::handle:vertical {
-            background: #4A4030; border-radius: 3px; min-height: 30px;
-        }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        QToolTip {
-            background: #231E1A; color: #C9A96E;
-            border: 1px solid #4A4030; font-size: 13px;
-        }
     """)
 
-    # ── 메인 윈도우 ───────────────────────────────────────────────────
-    window = KioskWindow()
+    window = KioskWindow(
+        api_host=host,
+        api_port=port,
+        hide_cursor=not args.show_cursor,
+        preview_mode=args.ui_preview,
+    )
 
-    # 전체화면 모드 (터치 키오스크)
-    if "--windowed" not in sys.argv:
+    if not args.windowed:
         window.showFullScreen()
     else:
         window.show()
 
     exit_code = app.exec()
 
-    # ── 서버 종료 ─────────────────────────────────────────────────────
-    server_proc.terminate()
-    try:
-        server_proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        server_proc.kill()
-    logger.info("Server stopped.")
+    if server_proc is not None:
+        server_proc.terminate()
+        try:
+            server_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server_proc.kill()
+        logger.info("Server stopped.")
 
     sys.exit(exit_code)
 

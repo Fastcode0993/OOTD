@@ -120,6 +120,10 @@ class GuideScreen(QWidget):
         self._capture_btn.setEnabled(False)
         self.capture_requested.emit()
 
+    def set_error_message(self, msg: str) -> None:
+        self._status_label.setText(msg)
+        self._status_label.setStyleSheet("color: #FF6B6B; font-size: 17px;")
+
     def reset(self) -> None:
         self._capture_btn.setEnabled(True)
         self._status_label.setText("카메라를 초기화 중입니다...")
