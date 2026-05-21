@@ -121,7 +121,17 @@ class KioskWindow(QMainWindow):
         self._qr.home_requested.connect(self._goto_idle)
 
     def _init_camera(self) -> None:
-        camera_index = int(os.getenv("KIOSK_CAMERA_INDEX", "1"))
+        raw_camera_index = os.getenv("KIOSK_CAMERA_INDEX", "1")
+        try:
+            camera_index = int(raw_camera_index)
+        except ValueError:
+            logger.warning(
+                "Invalid KIOSK_CAMERA_INDEX=%r; falling back to camera index 1.",
+                raw_camera_index,
+            )
+            camera_index = 1
+            self._guide.set_error_message("카메라 설정값이 잘못되어 기본 카메라로 시작합니다.")
+
         self._cam = CameraThread(camera_index=camera_index)
         self._cam.frame_ready.connect(self._guide.update_frame)
         self._cam.error_occurred.connect(self._on_camera_error)
@@ -169,7 +179,8 @@ class KioskWindow(QMainWindow):
         snapshot = self._cam.take_snapshot()
         if snapshot is None:
             self._guide.set_error_message("카메라를 열 수 없습니다. 직원에게 문의해주세요.")
-            self._guide.reset(); return
+            self._guide.reset(clear_status=False)
+            return
         self._snapshot = snapshot
         h, w = snapshot.shape[:2]
         rgb = cv2.cvtColor(snapshot, cv2.COLOR_BGR2RGB)
@@ -189,10 +200,12 @@ class KioskWindow(QMainWindow):
 
     def _on_analyze_failed(self, msg: str) -> None:
         logger.error("Analyze failed: %s", msg)
+        error_message = msg if "서버" in msg else "분석에 실패했습니다. 다시 촬영해주세요."
         self._analysis.stop()
         self._analysis.set_error_message("분석에 실패했습니다. 다시 촬영해주세요.")
-        self._guide.set_error_message(msg if "서버" in msg else "분석에 실패했습니다. 다시 촬영해주세요.")
-        self._goto_guide()
+        self._guide.set_error_message(error_message)
+        self._guide.reset(clear_status=False)
+        self._stack.setCurrentIndex(self._IDX_GUIDE)
 
     def _on_camera_error(self, msg: str) -> None:
         logger.error("Camera error: %s", msg)
