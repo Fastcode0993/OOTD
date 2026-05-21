@@ -90,6 +90,7 @@ class AnalysisScreen(QWidget):
         self._angle    = 0
         self._step_idx = 0
         self._step_label.setText(_STEPS[0])
+        self._error_label.clear()
         self._timer.start(30)   # 33 fps
 
     def stop(self) -> None:
