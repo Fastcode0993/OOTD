@@ -60,13 +60,26 @@ def _start_server(host: str, port: int) -> subprocess.Popen:
     return proc
 
 
+def _probe_host_for(host: str) -> str:
+    """Return a reachable local host for readiness checks.
+
+    0.0.0.0 and :: are bind addresses, not reliable client destinations.
+    Keep binding to KIOSK_HOST, but probe through loopback.
+    """
+    normalized = (host or "").strip().lower()
+    if normalized in {"", "0.0.0.0", "::", "[::]"}:
+        return "127.0.0.1"
+    return host
+
+
 def _wait_for_server(host: str, port: int, timeout: float = 15.0) -> bool:
     """서버가 준비될 때까지 대기."""
     import urllib.request
+    probe_host = _probe_host_for(host)
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(f"http://{host}:{port}/health", timeout=1)
+            urllib.request.urlopen(f"http://{probe_host}:{port}/health", timeout=1)
             logger.info("Server is ready.")
             return True
         except Exception:
