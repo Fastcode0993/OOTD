@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import socket
@@ -77,8 +78,8 @@ class KioskWindow(QMainWindow):
 
         self._preview_mode = preview_mode
         api_client_host = os.getenv("KIOSK_API_HOST") or self._client_host_for(api_host)
-        self._api_base = f"http://{api_client_host}:{api_port}/api/v1"
-        self._result_base_url = os.getenv("KIOSK_RESULT_BASE_URL") or f"http://{self._detect_local_ip()}:{api_port}"
+        self._api_base = f"http://{self._url_host(api_client_host)}:{api_port}/api/v1"
+        self._result_base_url = self._result_base_url_for(api_port)
 
         self._session_id = ""
         self._result_data: Dict[str, Any] = {}
@@ -93,12 +94,68 @@ class KioskWindow(QMainWindow):
         self._goto_idle()
 
     def _detect_local_ip(self) -> str:
+        hostname = socket.gethostname()
+        candidates = set()
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                return s.getsockname()[0]
+            for info in socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM):
+                candidates.add(info[4][0])
         except Exception:
-            return "127.0.0.1"
+            pass
+
+        if not candidates:
+            try:
+                _, _, addrs = socket.gethostbyname_ex(hostname)
+                candidates.update(addrs)
+            except Exception:
+                pass
+
+        local_ip = self._select_best_local_ip(candidates)
+        return local_ip or "127.0.0.1"
+
+    def _select_best_local_ip(self, candidates: set[str]) -> Optional[str]:
+        for addr in candidates:
+            if self._is_rfc1918_ipv4(addr):
+                return addr
+        for addr in candidates:
+            if addr and not addr.startswith(("127.", "0.", "169.254.")):
+                return addr
+        return None
+
+    def _is_rfc1918_ipv4(self, value: str) -> bool:
+        try:
+            address = ipaddress.ip_address(value)
+            return address.version == 4 and address.is_private
+        except ValueError:
+            return False
+
+    def _url_host(self, host: str) -> str:
+        value = (host or "").strip()
+        if ":" in value and not (value.startswith("[") and value.endswith("]")):
+            return f"[{value}]"
+        return value
+
+    def _result_base_url_for(self, api_port: int) -> str:
+        explicit = os.getenv("KIOSK_RESULT_BASE_URL")
+        if explicit:
+            return explicit
+
+        public_base = os.getenv("KIOSK_PUBLIC_BASE")
+        if public_base:
+            return public_base
+
+        result_host = os.getenv("KIOSK_RESULT_HOST")
+        if result_host:
+            return f"http://{self._url_host(result_host)}:{api_port}"
+
+        local_ip = self._detect_local_ip()
+        if local_ip.startswith("127.") or local_ip == "0.0.0.0" or local_ip.startswith("169.254."):
+            logger.warning(
+                "Unable to detect a LAN-visible kiosk host. "
+                "Set KIOSK_RESULT_BASE_URL or KIOSK_RESULT_HOST so QR codes work for other devices."
+            )
+            local_ip = "127.0.0.1"
+
+        return f"http://{self._url_host(local_ip)}:{api_port}"
 
     def _client_host_for(self, host: str) -> str:
         normalized = (host or "").strip().lower()
