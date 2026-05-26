@@ -127,6 +127,8 @@ class QRScreen(QWidget):
         url = qr_url or f"http://127.0.0.1:8000/result/{session_id}"
         self._generate_qr(url)
         self._info_label.setText(f"{label_ko}  |  {session_id[:8]}...")
+        self._auto_home_timer.stop()
+        self._countdown_timer.stop()
         self._remaining = 30
         self._countdown_label.setText(
             f"{self._remaining}초 후 자동으로 처음 화면으로 돌아갑니다"
@@ -162,11 +164,11 @@ class QRScreen(QWidget):
             self._qr_label.setText("QR 생성 실패")
 
     def _tick_countdown(self) -> None:
-        self._remaining -= 1
+        self._remaining = max(0, self._remaining - 1)
         self._countdown_label.setText(
             f"{self._remaining}초 후 자동으로 처음 화면으로 돌아갑니다"
         )
-        if self._remaining <= 0:
+        if self._remaining <= 0 and self._countdown_timer.isActive():
             self._go_home()
 
     def _go_home(self) -> None:

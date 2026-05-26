@@ -75,6 +75,11 @@ class AnalysisScreen(QWidget):
         self._step_label.setGraphicsEffect(self._step_effect)
         layout.addWidget(self._step_label)
 
+        self._error_label = QLabel("")
+        self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._error_label.setStyleSheet("color: #FF6B6B; font-size: 15px;")
+        layout.addWidget(self._error_label)
+
         note = QLabel("잠시만 기다려 주세요 — 약 5~10초 소요됩니다")
         note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         note.setStyleSheet("color: #666; font-size: 14px;")
@@ -85,10 +90,14 @@ class AnalysisScreen(QWidget):
         self._angle    = 0
         self._step_idx = 0
         self._step_label.setText(_STEPS[0])
+        self._error_label.clear()
         self._timer.start(30)   # 33 fps
 
     def stop(self) -> None:
         self._timer.stop()
+
+    def set_error_message(self, msg: str) -> None:
+        self._error_label.setText(msg)
 
     def set_face_pixmap(self, pixmap) -> None:
         if pixmap:

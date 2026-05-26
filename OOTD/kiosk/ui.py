@@ -1,13 +1,9 @@
-"""
-kiosk/ui.py
-────────────
-PyQt6 메인 윈도우 및 화면 전환 관리자.
-QStackedWidget으로 6개 화면을 전환.
-1280×800 해상도에 최적화.
-"""
 from __future__ import annotations
 
+import ipaddress
 import logging
+import os
+import socket
 import uuid
 from typing import Any, Dict, Optional
 
@@ -19,33 +15,28 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget
 
 from kiosk.camera import CameraThread
-from kiosk.screens.idle_screen           import IdleScreen
-from kiosk.screens.guide_screen          import GuideScreen
-from kiosk.screens.analysis_screen       import AnalysisScreen
-from kiosk.screens.result_screen         import ResultScreen
+from kiosk.screens.idle_screen import IdleScreen
+from kiosk.screens.guide_screen import GuideScreen
+from kiosk.screens.analysis_screen import AnalysisScreen
+from kiosk.screens.result_screen import ResultScreen
 from kiosk.screens.recommendation_screen import RecommendationScreen
-from kiosk.screens.qr_screen             import QRScreen
+from kiosk.screens.qr_screen import QRScreen
 
 logger = logging.getLogger(__name__)
-
 DISPLAY_W = 1280
 DISPLAY_H = 800
-
-API_BASE = "http://127.0.0.1:8000/api/v1"
-API_KEY  = "kiosk-dev-key-2024"
+API_KEY = "kiosk-dev-key-2024"
 
 
-# ── 백그라운드 API 워커 ───────────────────────────────────────────────────
 class _AnalyzeWorker(QThread):
-    """FastAPI /analyze 를 별도 스레드에서 호출."""
-
     finished = pyqtSignal(dict)
-    failed   = pyqtSignal(str)
+    failed = pyqtSignal(str)
 
-    def __init__(self, bgr_frame: np.ndarray, session_id: str) -> None:
+    def __init__(self, bgr_frame: np.ndarray, session_id: str, api_base: str) -> None:
         super().__init__()
-        self._frame      = bgr_frame
+        self._frame = bgr_frame
         self._session_id = session_id
+        self._api_base = api_base
 
     def run(self) -> None:
         try:
@@ -53,10 +44,9 @@ class _AnalyzeWorker(QThread):
             if not ok:
                 self.failed.emit("이미지 인코딩 실패")
                 return
-
             with httpx.Client(timeout=30.0) as client:
                 resp = client.post(
-                    f"{API_BASE}/analyze",
+                    f"{self._api_base}/analyze",
                     headers={"x-api-key": API_KEY},
                     files={"image_file": ("face.jpg", buf.tobytes(), "image/jpeg")},
                     data={"session_id": self._session_id},
@@ -65,75 +55,161 @@ class _AnalyzeWorker(QThread):
                 self.finished.emit(resp.json())
             else:
                 self.failed.emit(f"서버 오류: {resp.status_code}")
+        except httpx.ConnectError:
+            self.failed.emit("분석 서버 연결에 실패했습니다. 다시 시도해주세요.")
         except Exception as e:
             self.failed.emit(str(e))
 
 
-# ── 메인 윈도우 ───────────────────────────────────────────────────────────
 class KioskWindow(QMainWindow):
-    """1280×800 전체화면 키오스크 메인 윈도우."""
-
-    _IDX_IDLE     = 0
-    _IDX_GUIDE    = 1
+    _IDX_IDLE = 0
+    _IDX_GUIDE = 1
     _IDX_ANALYSIS = 2
-    _IDX_RESULT   = 3
-    _IDX_RECO     = 4
-    _IDX_QR       = 5
+    _IDX_RESULT = 3
+    _IDX_RECO = 4
+    _IDX_QR = 5
 
-    def __init__(self) -> None:
+    def __init__(self, api_host: str = "127.0.0.1", api_port: int = 8000, hide_cursor: bool = True, preview_mode: bool = False) -> None:
         super().__init__()
         self.setWindowTitle("Personal Color Kiosk")
         self.setFixedSize(DISPLAY_W, DISPLAY_H)
-        self.setCursor(Qt.CursorShape.BlankCursor)
+        if hide_cursor:
+            self.setCursor(Qt.CursorShape.BlankCursor)
 
-        self._session_id:     str              = ""
-        self._result_data:    Dict[str, Any]   = {}
-        self._snapshot:       Optional[np.ndarray] = None
+        self._preview_mode = preview_mode
+        api_client_host = os.getenv("KIOSK_API_HOST") or self._client_host_for(api_host)
+        self._api_base = f"http://{self._url_host(api_client_host)}:{api_port}/api/v1"
+        self._result_base_url = self._result_base_url_for(api_port)
+
+        self._session_id = ""
+        self._result_data: Dict[str, Any] = {}
+        self._snapshot: Optional[np.ndarray] = None
         self._analyze_worker: Optional[_AnalyzeWorker] = None
 
         self._build_stack()
-        self._init_camera()
+        if not self._preview_mode:
+            self._init_camera()
+        else:
+            self._load_preview_data()
         self._goto_idle()
 
-    # ------------------------------------------------------------------ #
+    def _detect_local_ip(self) -> str:
+        hostname = socket.gethostname()
+        candidates = set()
+        try:
+            for info in socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM):
+                candidates.add(info[4][0])
+        except Exception:
+            pass
+
+        if not candidates:
+            try:
+                _, _, addrs = socket.gethostbyname_ex(hostname)
+                candidates.update(addrs)
+            except Exception:
+                pass
+
+        local_ip = self._select_best_local_ip(candidates)
+        return local_ip or "127.0.0.1"
+
+    def _select_best_local_ip(self, candidates: set[str]) -> Optional[str]:
+        for addr in candidates:
+            if self._is_rfc1918_ipv4(addr):
+                return addr
+        for addr in candidates:
+            if addr and not addr.startswith(("127.", "0.", "169.254.")):
+                return addr
+        return None
+
+    def _is_rfc1918_ipv4(self, value: str) -> bool:
+        try:
+            address = ipaddress.ip_address(value)
+            return address.version == 4 and address.is_private
+        except ValueError:
+            return False
+
+    def _url_host(self, host: str) -> str:
+        value = (host or "").strip()
+        if ":" in value and not (value.startswith("[") and value.endswith("]")):
+            return f"[{value}]"
+        return value
+
+    def _result_base_url_for(self, api_port: int) -> str:
+        explicit = os.getenv("KIOSK_RESULT_BASE_URL")
+        if explicit:
+            return explicit
+
+        public_base = os.getenv("KIOSK_PUBLIC_BASE")
+        if public_base:
+            return public_base
+
+        result_host = os.getenv("KIOSK_RESULT_HOST")
+        if result_host:
+            return f"http://{self._url_host(result_host)}:{api_port}"
+
+        local_ip = self._detect_local_ip()
+        if local_ip.startswith("127.") or local_ip == "0.0.0.0" or local_ip.startswith("169.254."):
+            logger.warning(
+                "Unable to detect a LAN-visible kiosk host. "
+                "Set KIOSK_RESULT_BASE_URL or KIOSK_RESULT_HOST so QR codes work for other devices."
+            )
+            local_ip = "127.0.0.1"
+
+        return f"http://{self._url_host(local_ip)}:{api_port}"
+
+    def _client_host_for(self, host: str) -> str:
+        normalized = (host or "").strip().lower()
+        if normalized in {"", "0.0.0.0", "::", "[::]"}:
+            return "127.0.0.1"
+        return host
+
     def _build_stack(self) -> None:
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
-
-        self._idle     = IdleScreen()
-        self._guide    = GuideScreen()
+        self._idle = IdleScreen()
+        self._guide = GuideScreen()
         self._analysis = AnalysisScreen()
-        self._result   = ResultScreen()
-        self._reco     = RecommendationScreen()
-        self._qr       = QRScreen()
-
-        self._stack.addWidget(self._idle)       # 0
-        self._stack.addWidget(self._guide)      # 1
-        self._stack.addWidget(self._analysis)   # 2
-        self._stack.addWidget(self._result)     # 3
-        self._stack.addWidget(self._reco)       # 4
-        self._stack.addWidget(self._qr)         # 5
+        self._result = ResultScreen()
+        self._reco = RecommendationScreen()
+        self._qr = QRScreen()
+        for w in [self._idle, self._guide, self._analysis, self._result, self._reco, self._qr]:
+            self._stack.addWidget(w)
 
         self._idle.start_requested.connect(self._goto_guide)
-
         self._guide.capture_requested.connect(self._on_capture)
         self._guide.back_requested.connect(self._goto_idle)
-
         self._result.next_requested.connect(self._goto_reco)
         self._result.retry_requested.connect(self._goto_guide)
-
         self._reco.qr_requested.connect(self._goto_qr)
         self._reco.back_requested.connect(self._goto_result)
-
         self._qr.home_requested.connect(self._goto_idle)
 
     def _init_camera(self) -> None:
-        self._cam = CameraThread(camera_index=1)
+        raw_camera_index = os.getenv("KIOSK_CAMERA_INDEX", "1")
+        try:
+            camera_index = int(raw_camera_index)
+        except ValueError:
+            logger.warning(
+                "Invalid KIOSK_CAMERA_INDEX=%r; falling back to camera index 1.",
+                raw_camera_index,
+            )
+            camera_index = 1
+            self._guide.set_error_message("카메라 설정값이 잘못되어 기본 카메라로 시작합니다.")
+
+        self._cam = CameraThread(camera_index=camera_index)
         self._cam.frame_ready.connect(self._guide.update_frame)
         self._cam.error_occurred.connect(self._on_camera_error)
         self._cam.start()
 
-    # ── 화면 전환 ─────────────────────────────────────────────────────────
+    def _load_preview_data(self) -> None:
+        self._result_data = {
+            "label_ko": "가을 웜톤",
+            "recommendations": {
+                "fashion": [{"item_name_ko": "베이지 자켓", "color_name_ko": "웜 베이지", "color_hex": "#C7A27C", "tip_ko": "부드러운 톤 매치"}],
+                "makeup": [], "hair": [], "interior": []
+            }
+        }
+
     def _goto_idle(self) -> None:
         self._session_id = str(uuid.uuid4())
         self._stack.setCurrentIndex(self._IDX_IDLE)
@@ -153,44 +229,31 @@ class KioskWindow(QMainWindow):
         self._stack.setCurrentIndex(self._IDX_RESULT)
 
     def _goto_reco(self) -> None:
-        self._reco.set_data(
-            self._result_data.get("label_ko", ""),
-            self._result_data.get("recommendations", {}),
-        )
+        self._reco.set_data(self._result_data.get("label_ko", ""), self._result_data.get("recommendations", {}))
         self._stack.setCurrentIndex(self._IDX_RECO)
 
     def _goto_qr(self) -> None:
-        # 클라우드 연동 QR URL 또는 로컬 세션 URL 사용
-        qr_url = self._result_data.get("qr_url") or None
-        self._qr.set_session(
-            session_id=self._session_id,
-            label_ko=self._result_data.get("label_ko", ""),
-            qr_url=qr_url,
-        )
+        qr_url = self._result_data.get("qr_url") or f"{self._result_base_url}/result/{self._session_id}"
+        self._qr.set_session(session_id=self._session_id, label_ko=self._result_data.get("label_ko", ""), qr_url=qr_url)
         self._stack.setCurrentIndex(self._IDX_QR)
 
-    def _goto_result_direct(self) -> None:
-        self._stack.setCurrentIndex(self._IDX_RESULT)
-
-    # ── 이벤트 핸들러 ────────────────────────────────────────────────────
     def _on_capture(self) -> None:
+        if self._preview_mode:
+            self._goto_analysis(); self._on_analyze_finished(self._result_data); return
         snapshot = self._cam.take_snapshot()
         if snapshot is None:
-            self._guide.reset()
+            self._guide.set_error_message("카메라를 열 수 없습니다. 직원에게 문의해주세요.")
+            self._guide.reset(clear_status=False)
             return
-
         self._snapshot = snapshot
-
         h, w = snapshot.shape[:2]
-        rgb  = cv2.cvtColor(snapshot, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(snapshot, cv2.COLOR_BGR2RGB)
         qimg = QImage(rgb.data, w, h, w * 3, QImage.Format.Format_RGB888)
         self._analysis.set_face_pixmap(QPixmap.fromImage(qimg))
-
-        self._goto_analysis()
-        self._start_analyze()
+        self._goto_analysis(); self._start_analyze()
 
     def _start_analyze(self) -> None:
-        self._analyze_worker = _AnalyzeWorker(self._snapshot, self._session_id)
+        self._analyze_worker = _AnalyzeWorker(self._snapshot, self._session_id, self._api_base)
         self._analyze_worker.finished.connect(self._on_analyze_finished)
         self._analyze_worker.failed.connect(self._on_analyze_failed)
         self._analyze_worker.start()
@@ -200,16 +263,21 @@ class KioskWindow(QMainWindow):
         self._goto_result()
 
     def _on_analyze_failed(self, msg: str) -> None:
-        logger.error(f"Analyze failed: {msg}")
+        logger.error("Analyze failed: %s", msg)
+        error_message = msg if "서버" in msg else "분석에 실패했습니다. 다시 촬영해주세요."
         self._analysis.stop()
-        self._goto_guide()
+        self._analysis.set_error_message("분석에 실패했습니다. 다시 촬영해주세요.")
+        self._guide.set_error_message(error_message)
+        self._guide.reset(clear_status=False)
+        self._stack.setCurrentIndex(self._IDX_GUIDE)
 
     def _on_camera_error(self, msg: str) -> None:
-        logger.error(f"Camera error: {msg}")
+        logger.error("Camera error: %s", msg)
+        self._guide.set_error_message("카메라를 열 수 없습니다. 직원에게 문의해주세요.")
 
     def closeEvent(self, event) -> None:
-        self._cam.stop()
+        if not self._preview_mode:
+            self._cam.stop()
         if self._analyze_worker and self._analyze_worker.isRunning():
-            self._analyze_worker.quit()
-            self._analyze_worker.wait(2000)
+            self._analyze_worker.quit(); self._analyze_worker.wait(2000)
         super().closeEvent(event)
