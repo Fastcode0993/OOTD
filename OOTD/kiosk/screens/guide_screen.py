@@ -120,10 +120,15 @@ class GuideScreen(QWidget):
         self._capture_btn.setEnabled(False)
         self.capture_requested.emit()
 
-    def reset(self) -> None:
+    def set_error_message(self, msg: str) -> None:
+        self._status_label.setText(msg)
+        self._status_label.setStyleSheet("color: #FF6B6B; font-size: 17px;")
+
+    def reset(self, clear_status: bool = True) -> None:
         self._capture_btn.setEnabled(True)
-        self._status_label.setText("카메라를 초기화 중입니다...")
-        self._status_label.setStyleSheet(f"color: {GOLD}; font-size: 17px;")
+        if clear_status:
+            self._status_label.setText("카메라를 초기화 중입니다...")
+            self._status_label.setStyleSheet(f"color: {GOLD}; font-size: 17px;")
 
 
 # ── 카메라 + 타원 오버레이 위젯 ──────────────────────────────────────────
