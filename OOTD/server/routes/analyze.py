@@ -87,6 +87,15 @@ def _detect_lan_host() -> str:
         return "127.0.0.1"
 
 
+def _local_result_port() -> int:
+    raw_port = os.getenv("KIOSK_PORT") or os.getenv("PORT") or "8000"
+    try:
+        return int(raw_port)
+    except ValueError:
+        logger.warning("Invalid KIOSK_PORT/PORT=%r; fallback to 8000", raw_port)
+        return 8000
+
+
 def _local_result_url(session_id: str) -> str:
     """
     클라우드 sync 실패 시 사용할 로컬 결과 페이지 URL.
@@ -95,7 +104,7 @@ def _local_result_url(session_id: str) -> str:
     """
     base = (_LOCAL_RESULT_BASE or "").strip().rstrip("/")
     if not base:
-        port = int(os.getenv("PORT", "8000"))
+        port = _local_result_port()
         base = f"http://{_detect_lan_host()}:{port}"
     return f"{base}/result/{session_id}"
 
