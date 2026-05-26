@@ -87,16 +87,16 @@ def _wait_for_server(host: str, port: int, timeout: float = 15.0) -> bool:
     return False
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args() -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser()
     parser.add_argument("--windowed", action="store_true")
     parser.add_argument("--show-cursor", action="store_true")
     parser.add_argument("--ui-preview", action="store_true")
-    return parser.parse_args()
+    return parser.parse_known_args()
 
 
 def main() -> None:
-    args = _parse_args()
+    args, qt_args = _parse_args()
     host, port = _env_host_port()
 
     server_proc: subprocess.Popen | None = None
@@ -105,7 +105,7 @@ def main() -> None:
         if not _wait_for_server(host, port):
             logger.warning("Server did not start in time — continuing anyway.")
 
-    app = QApplication(sys.argv)
+    app = QApplication([sys.argv[0], *qt_args])
     app.setApplicationName("Personal Color Kiosk")
     app.setOrganizationName("ColorLab")
 

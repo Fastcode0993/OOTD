@@ -76,7 +76,8 @@ class KioskWindow(QMainWindow):
             self.setCursor(Qt.CursorShape.BlankCursor)
 
         self._preview_mode = preview_mode
-        self._api_base = f"http://{api_host}:{api_port}/api/v1"
+        api_client_host = os.getenv("KIOSK_API_HOST") or self._client_host_for(api_host)
+        self._api_base = f"http://{api_client_host}:{api_port}/api/v1"
         self._result_base_url = os.getenv("KIOSK_RESULT_BASE_URL") or f"http://{self._detect_local_ip()}:{api_port}"
 
         self._session_id = ""
@@ -98,6 +99,12 @@ class KioskWindow(QMainWindow):
                 return s.getsockname()[0]
         except Exception:
             return "127.0.0.1"
+
+    def _client_host_for(self, host: str) -> str:
+        normalized = (host or "").strip().lower()
+        if normalized in {"", "0.0.0.0", "::", "[::]"}:
+            return "127.0.0.1"
+        return host
 
     def _build_stack(self) -> None:
         self._stack = QStackedWidget()
