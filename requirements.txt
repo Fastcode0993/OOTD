@@ -1,27 +1,19 @@
-# HMI 퍼스널 컬러 진단 시스템 의존성
-
-# 컴퓨터 비전 및 이미지 처리
-opencv-python>=4.8.0
-numpy>=1.24.0
-
-# AI/ML 프레임워크
-torch>=2.0.0
-torchvision>=0.15.0
-
-# 웹 프레임워크
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-pydantic>=2.0.0  # Pydantic v2 for FastAPI
-
-# 웹 서버 및 API
-requests>=2.31.0
-fastapi-responses>=0.1.0
-
-# 얼굴 인식 및 랜드마크
-mediapipe>=0.10.0
-
-# 데이터베이스
-# sqlite3 는 Python 표준 라이브러리
-
-# 이미지 처리
-Pillow>=10.0.0
+# PyQt6 ARM64(Raspberry Pi): pip 미지원 → sudo apt install python3-pyqt6 사용
+# PyQt6 OL10 x86_64: pip install PyQt6 (Qt6 패키지 필요 시 dnf install qt6-qtbase)
+PyQt6>=6.6.0
+torch>=2.6.0
+torchvision>=0.21.0
+scikit-learn>=1.4.0
+opencv-python-headless>=4.9.0   # OL10 서버 배포 시 -headless 권장
+pandas>=2.2.0
+matplotlib>=3.8.0
+numpy>=1.26.0
+Pillow>=10.3.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+httpx>=0.27.0
+qrcode[pil]>=7.4.2
+mediapipe==0.10.14              # FaceMesh solutions API 마지막 안정 버전
+protobuf>=4.25.0,<5.0.0        # mediapipe 0.10.14 호환 (TF와 충돌 시 stub 우회 적용됨)
